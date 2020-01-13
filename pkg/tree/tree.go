@@ -40,9 +40,9 @@ func (t *Tree) GetValue(code []byte) (string, []byte, error) {
 		switch true {
 		case tmp.isLeaf():
 			return tmp.Value, code[i+1:], nil
-		case code[i] == '0':
+		case code[i] == 0:
 			tmp = tmp.Left
-		case code[i] == '1':
+		case code[i] == 1:
 			tmp = tmp.Right
 		default:
 			return "", nil, fmt.Errorf("invalid character: %c", code[i])

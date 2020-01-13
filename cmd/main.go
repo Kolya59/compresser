@@ -105,8 +105,8 @@ func popMinCoupleFromSlice(leafs *map[string]*tree.Tree) (fst, snd *tree.Tree, e
 			min2 = v.Probability
 		}
 	}
-	(*leafs)[fst.Value] = nil
-	(*leafs)[snd.Value] = nil
+	delete(*leafs, fst.Value)
+	delete(*leafs, snd.Value)
 	return
 }
 
@@ -115,6 +115,14 @@ func main() {
 	leafs, err := readData("./data/freq.txt")
 	if err != nil {
 		log.Fatalf("Failed to read data: %v", err)
+	}
+	leafs[" "] = &tree.Tree{
+		Value:       " ",
+		Probability: 0.190767000311362,
+	}
+	leafs["\n"] = &tree.Tree{
+		Value:       "\n",
+		Probability: 0.0152592971737005,
 	}
 
 	// Create tree
@@ -142,7 +150,7 @@ func main() {
 	}
 
 	// Save packet to the file
-	packedPath, err := filepath.Abs("./data/packed.txt")
+	packedPath, err := filepath.Abs("./data/packed.bin")
 	if err != nil {
 		log.Fatalf("Failed to get abs packed path: %v", err)
 	}
