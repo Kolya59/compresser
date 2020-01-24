@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	uuid "github.com/satori/go.uuid"
+
 	"github.com/kolya59/compresser/pkg/tree"
 )
 
@@ -34,9 +36,11 @@ func readData(path string) (map[string]*tree.Tree, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse %s: %w", s[1], err)
 		}
-		trees[s[0]] = &tree.Tree{
+		id, _ := uuid.NewV4()
+		trees[id.String()] = &tree.Tree{
 			Value:       s[0],
 			Probability: pb,
+			UUID:        id.String(),
 		}
 	}
 	return trees, nil
@@ -48,7 +52,8 @@ func createTree(leafs map[string]*tree.Tree) (*tree.Tree, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get min elements: %w", err)
 		}
-		leafs[fst.Value+snd.Value] = tree.Concat(fst, snd)
+		id, _ := uuid.NewV4()
+		leafs[id.String()] = tree.Concat(fst, snd, id.String())
 	}
 
 	var l *tree.Tree
@@ -59,23 +64,49 @@ func createTree(leafs map[string]*tree.Tree) (*tree.Tree, error) {
 	return l, nil
 }
 
-func pack(source string, packer *tree.Tree) ([]byte, error) {
-	var res []byte
-	for _, c := range source {
-		b, err := packer.GetCode(c)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find code for %c: %w", c, err)
-		}
-		res = append(res, b...)
+func bytesToString(b []byte) string {
+	res := ""
+	n := len(b)
+	if n <= 0 {
+		return ""
 	}
-	return res, nil
+	for _, el := range b {
+		res += fmt.Sprintf("%08b", el)
+	}
+	return res
+}
+
+func stringToBytes(s string) []byte {
+	var res []byte
+	var tmp int64
+	for len(s)%8 != 0 {
+		s += "0"
+	}
+	for i := 0; len(s)-i >= 8; i += 8 {
+		tmp, _ = strconv.ParseInt(s[i:i+8], 2, 16)
+		res = append(res, byte(tmp))
+	}
+	return res
+}
+
+func pack(source string, packer map[string]string) ([]byte, error) {
+	var res string
+	for _, c := range source {
+		b := tree.GetCode(c, packer)
+		if b == "" {
+			return nil, fmt.Errorf("failed to find code for %c", c)
+		}
+		res += b
+	}
+	return stringToBytes(res), nil
 }
 
 func unpack(b []byte, packer *tree.Tree) (string, error) {
 	var res, c string
 	var err error
-	for len(b) != 0 {
-		c, b, err = packer.GetValue(b)
+	s := bytesToString(b)
+	for len(s) != 0 {
+		c, s, err = packer.GetValue(s)
 		if err != nil {
 			return "", fmt.Errorf("failed to parse freq: %w", err)
 		}
@@ -105,24 +136,44 @@ func popMinCoupleFromSlice(leafs *map[string]*tree.Tree) (fst, snd *tree.Tree, e
 			min2 = v.Probability
 		}
 	}
-	delete(*leafs, fst.Value)
-	delete(*leafs, snd.Value)
+	delete(*leafs, fst.UUID)
+	delete(*leafs, snd.UUID)
 	return
+}
+
+func createMap(root *tree.Tree) map[string]string {
+	res := make(map[string]string)
+	dfs("", root, res)
+	return res
+}
+
+func dfs(prefix string, node *tree.Tree, m map[string]string) {
+	if node.Left != nil {
+		dfs(fmt.Sprintf("%s0", prefix), node.Left, m)
+	}
+	if node.Right != nil {
+		dfs(fmt.Sprintf("%s1", prefix), node.Right, m)
+	}
+	if len(node.Value) == 1 {
+		m[node.Value] = prefix
+	}
 }
 
 func main() {
 	// Read freq
-	leafs, err := readData("./data/freq.txt")
+	leafs, err := readData("./data/freq1.txt")
 	if err != nil {
 		log.Fatalf("Failed to read data: %v", err)
 	}
-	leafs[" "] = &tree.Tree{
+	leafs["uuid"] = &tree.Tree{
 		Value:       " ",
 		Probability: 0.190767000311362,
+		UUID:        "uuid",
 	}
-	leafs["\n"] = &tree.Tree{
+	leafs["uuid2"] = &tree.Tree{
 		Value:       "\n",
 		Probability: 0.0152592971737005,
+		UUID:        "uuid2",
 	}
 
 	// Create tree
@@ -131,20 +182,23 @@ func main() {
 		log.Fatalf("Failed to create tree: %v", err)
 	}
 
+	// Create map
+	rootMap := createMap(root)
+
 	// Get absolute path
-	originalPath, err := filepath.Abs("./data/original.txt")
+	originalPath, err := filepath.Abs("./data/test.txt")
 	if err != nil {
-		log.Fatalf("failed to get path: %v", err)
+		log.Fatalf("Failed to get path: %v", err)
 	}
 
 	// Read file
 	original, err := ioutil.ReadFile(originalPath)
 	if err != nil {
-		log.Fatalf("failed to read file: %v", err)
+		log.Fatalf("Failed to read file: %v", err)
 	}
 
 	// Pack freq
-	packed, err := pack(string(original), root)
+	packed, err := pack(string(original), rootMap)
 	if err != nil {
 		log.Fatalf("Failed to pack original: %v", err)
 	}
@@ -167,5 +221,7 @@ func main() {
 	// Compare original and unpacked
 	if string(original) != unpacked {
 		log.Fatal("Original != unpacked")
+	} else {
+		log.Print("Original == unpacked")
 	}
 }
